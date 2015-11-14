@@ -127,6 +127,7 @@
     <Compile Include="Diagnostics\ApplicationLogsReader.cs" />
     <Compile Include="Infrastructure\LowerCasePropertyNamesContractResolver.cs" />
     <Compile Include="Infrastructure\ReverseLineReader.cs" />
+    <Compile Include="Jobs\FunctionsController.cs" />
     <Compile Include="Jobs\JobsController.cs" />
     <Compile Include="Infrastructure\VfsSpecialFolders.cs" />
     <Compile Include="Jobs\SwaggerApiDef.cs" />
