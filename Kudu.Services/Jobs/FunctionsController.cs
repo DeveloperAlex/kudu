@@ -36,7 +36,7 @@ namespace Kudu.Services.Jobs
                 var config = await Request.Content.ReadAsStringAsync();
                 var functionDir = FileSystemHelpers.EnsureDirectory(Path.Combine(_environment.FunctionsPath, name));
                 await FileSystemHelpers.WriteAllTextToFileAsync(Path.Combine(functionDir, Constants.FunctionsConfigFile), config);
-                return Request.CreateResponse(HttpStatusCode.Created);
+                return Request.CreateResponse(HttpStatusCode.Created, (object)await GetFunctionConfig(name));
             }
         }
 
@@ -45,13 +45,12 @@ namespace Kudu.Services.Jobs
         {
             using (_tracer.Step("FunctionsController.list()"))
             {
-                var configContents = await Task.WhenAll(
+                var configList = await Task.WhenAll(
                     FileSystemHelpers
                     .GetDirectories(_environment.FunctionsPath)
                     .Select(d => Path.Combine(d, Constants.FunctionsConfigFile))
                     .Where(FileSystemHelpers.FileExists)
-                    .Select(FileSystemHelpers.ReadAllTextFromFileAsync));
-                var configList = configContents.Select(JsonConvert.DeserializeObject);
+                    .Select(f => GetFunctionConfig(Path.GetFileName(Path.GetDirectoryName(f)))));
 
                 return Request.CreateResponse(HttpStatusCode.OK, configList);
             }
@@ -62,8 +61,7 @@ namespace Kudu.Services.Jobs
         {
             using (_tracer.Step($"FunctionsController.Get({name})"))
             {
-                var config = await GetFunctionConfig(name);
-                return Request.CreateResponse(HttpStatusCode.OK, config);
+                return Request.CreateResponse(HttpStatusCode.OK, (object)await GetFunctionConfig(name));
             }
         }
 
@@ -75,41 +73,6 @@ namespace Kudu.Services.Jobs
                 var path = GetFunctionPath(name);
                 FileSystemHelpers.DeleteDirectorySafe(path, ignoreErrors: false);
                 return Request.CreateResponse(HttpStatusCode.NoContent);
-            }
-        }
-
-        [HttpGet]
-        public HttpResponseMessage GetScript(string name)
-        {
-            using (_tracer.Step($"FunctionsController.GetScript({name})"))
-            {
-                var path = GetFunctionPath(name);
-                var script = Path.Combine(path, Constants.FunctionsScriptFile);
-                if (FileSystemHelpers.FileExists(script))
-                {
-                    var response = Request.CreateResponse(HttpStatusCode.OK);
-                    var fileStream = new FileStream(script, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, BufferSize, useAsync: true);
-                    response.Content = new StreamContent(fileStream, BufferSize);
-                    response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/javascript");
-                    return response;
-                }
-                else
-                {
-                    return Request.CreateResponse(HttpStatusCode.NotFound);
-                }
-            }
-        }
-
-        [HttpPut]
-        public async Task<HttpResponseMessage> PutScript(string name)
-        {
-            using (_tracer.Step($"FunctionsController.PutScript({name})"))
-            {
-                var path = GetFunctionPath(name);
-                var scriptPath = Path.Combine(path, Constants.FunctionsScriptFile);
-                var script = await Request.Content.ReadAsStringAsync();
-                await FileSystemHelpers.WriteAllTextToFileAsync(scriptPath, script);
-                return Request.CreateResponse(HttpStatusCode.Created);
             }
         }
 
@@ -160,6 +123,32 @@ namespace Kudu.Services.Jobs
             }
         }
 
+        public async Task<dynamic> GetFunctionConfig(string name)
+        {
+            var path = Path.Combine(GetFunctionPath(name), Constants.FunctionsConfigFile);
+            if (FileSystemHelpers.FileExists(path))
+            {
+                return CreateFunctionConfig(await FileSystemHelpers.ReadAllTextFromFileAsync(path), name);
+            }
+
+            throw new HttpResponseException(HttpStatusCode.NotFound);
+        }
+
+        public dynamic CreateFunctionConfig(string configContent, string functionName)
+        {
+            var config = JsonConvert.DeserializeObject<dynamic>(configContent);
+            config.name = functionName;
+            config.script_href = FilePathToVfsUri(Path.Combine(GetFunctionPath(functionName), Constants.FunctionsScriptFile));
+            return config;
+        }
+
+        public Uri FilePathToVfsUri(string filePath)
+        {
+            var baseUrl = Request.RequestUri.GetLeftPart(UriPartial.Authority);
+            filePath = filePath.Substring(_environment.RootPath.Length).Trim('\\').Replace("\\", "/");
+            return new Uri($"{baseUrl}/vfs/{filePath}");
+        }
+
         public string GetFunctionPath(string name)
         {
             var path = Path.Combine(_environment.FunctionsPath, name);
@@ -171,27 +160,5 @@ namespace Kudu.Services.Jobs
             throw new HttpResponseException(HttpStatusCode.NotFound);
         }
 
-        public async Task<object> GetFunctionConfig(string name)
-        {
-            var path = Path.Combine(GetFunctionPath(name), Constants.FunctionsConfigFile);
-            if (FileSystemHelpers.FileExists(path))
-            {
-                return JsonConvert.DeserializeObject(await FileSystemHelpers.ReadAllTextFromFileAsync(path));
-            }
-
-            throw new HttpResponseException(HttpStatusCode.NotFound);
-        }
-
-        public Task<string> GetFunctionScript(string name)
-        {
-            var path = GetFunctionPath(name);
-            var script = Path.Combine(path, Constants.FunctionsScriptFile);
-            if (FileSystemHelpers.FileExists(script))
-            {
-                return FileSystemHelpers.ReadAllTextFromFileAsync(script);
-            }
-
-            throw new HttpResponseException(HttpStatusCode.NotFound);
-        }
     }
 }
