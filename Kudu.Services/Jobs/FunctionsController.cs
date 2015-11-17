@@ -146,7 +146,7 @@ namespace Kudu.Services.Jobs
         {
             var baseUrl = Request.RequestUri.GetLeftPart(UriPartial.Authority);
             filePath = filePath.Substring(_environment.RootPath.Length).Trim('\\').Replace("\\", "/");
-            return new Uri($"{baseUrl}/vfs/{filePath}");
+            return new Uri($"{baseUrl}/api/vfs/{filePath}");
         }
 
         public string GetFunctionPath(string name)
